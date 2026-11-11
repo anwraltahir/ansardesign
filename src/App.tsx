@@ -19,8 +19,31 @@ import {
   DesignTemplate,
 } from './types';
 import { api } from './services/api';
-import { getArabicDayName, toHijriDate } from './utils/hijri';
-import { Sparkles, ArrowDown, Shield, CheckCircle, ExternalLink } from 'lucide-react';
+import { getArabicDayName, getNextFridayISO, toHijriDate, toLocalISODate } from './utils/hijri';
+import { recommendTemplate } from './utils/templates';
+import { resolvePrimarySheikh, resolveSecondarySheikhs } from './utils/sheikh';
+import {
+  ArrowDown,
+  Globe,
+  Youtube,
+  Facebook,
+  MessageCircle,
+  Send,
+  Instagram,
+  Twitter,
+} from 'lucide-react';
+import { BrandEmblem, BrandWordmark } from './components/Brand';
+
+// Official accounts, as printed on the group's identity strip
+const SOCIAL_LINKS = [
+  { label: 'الموقع الرسمي', href: 'https://www.ansar-alsuna.net', icon: Globe },
+  { label: 'يوتيوب', href: 'https://www.youtube.com/@alsuna1431', icon: Youtube },
+  { label: 'فيسبوك', href: 'https://www.facebook.com/AnsarAlsuna.sd', icon: Facebook },
+  { label: 'واتساب', href: 'https://wa.me/249128488888', icon: MessageCircle },
+  { label: 'تيليجرام', href: 'https://t.me/AnsarAlsuna', icon: Send },
+  { label: 'إنستغرام', href: 'https://www.instagram.com/AnsarAlsuna', icon: Instagram },
+  { label: 'إكس (تويتر)', href: 'https://x.com/AnsarAlsuna', icon: Twitter },
+];
 
 export default function App() {
   // Application Data States
@@ -43,16 +66,11 @@ export default function App() {
 
   // Form State
   const [formData, setFormData] = useState<AnnouncementFormData>(() => {
-    // Find next Friday
-    const d = new Date();
-    const day = d.getDay();
-    const diff = (5 - day + 7) % 7 || 7;
-    d.setDate(d.getDate() + diff);
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = getNextFridayISO();
 
     return {
       type: 'خطبة جمعة',
-      title: 'وجوب الاعتصام بالكتاب والسنة والتحذير من الفرقة',
+      title: '',
       subtitle: '',
       primarySheikhId: 1,
       secondarySheikhIds: [],
@@ -63,7 +81,7 @@ export default function App() {
       date: dateStr,
       dayName: 'الجمعة',
       hijriDate: toHijriDate(dateStr),
-      timeType: 'بعد صلاة الجمعة',
+      timeType: 'وقت صلاة الجمعة',
       customTimeHour: '08',
       customTimeMinute: '00',
       customTimePeriod: 'م',
@@ -120,6 +138,9 @@ export default function App() {
             mosqueId: prev.mosqueId || mosquesData[0]?.id || 1,
           }));
         }
+
+        // Start from the archive style that matches the default announcement type, if any
+        setFormData((prev) => ({ ...prev, templateId: recommendTemplate(prev.type, templatesData) }));
       } catch (err) {
         console.error('Failed to load initial data:', err);
       } finally {
@@ -161,11 +182,7 @@ export default function App() {
   };
 
   const handleResetForm = () => {
-    const d = new Date();
-    const day = d.getDay();
-    const diff = (5 - day + 7) % 7 || 7;
-    d.setDate(d.getDate() + diff);
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = getNextFridayISO();
 
     setFormData({
       type: 'خطبة جمعة',
@@ -180,7 +197,7 @@ export default function App() {
       date: dateStr,
       dayName: 'الجمعة',
       hijriDate: toHijriDate(dateStr),
-      timeType: 'بعد صلاة الجمعة',
+      timeType: 'وقت صلاة الجمعة',
       specialNotes: 'الدعوة عامة',
       liveBroadcast: false,
       womenHallAvailable: true,
@@ -195,15 +212,21 @@ export default function App() {
       title: announcement.title || '',
       subtitle: announcement.subtitle || '',
       primarySheikhId: announcement.primarySheikhId || sheikhs[0]?.id || 1,
+      sheikhPhotoUrl: announcement.sheikhPhotoUrl,
+      manualSheikh: announcement.manualSheikh,
+      manualCoSheikhs: announcement.manualCoSheikhs || [],
       secondarySheikhIds: announcement.secondarySheikhIds || [],
       stateId: announcement.stateId || states[0]?.id || 1,
       localityId: announcement.localityId || localities[0]?.id || 1,
       mosqueId: announcement.mosqueId || mosques[0]?.id || 1,
       customLocation: announcement.customLocation || '',
-      date: announcement.date || new Date().toISOString().slice(0, 10),
+      date: announcement.date || toLocalISODate(new Date()),
       dayName: announcement.dayName || getArabicDayName(announcement.date),
       hijriDate: toHijriDate(announcement.date),
-      timeType: announcement.timeType || 'بعد صلاة المغرب',
+      timeType:
+        announcement.type === 'خطبة جمعة' && announcement.timeType !== 'وقت محدد'
+          ? 'وقت صلاة الجمعة'
+          : announcement.timeType || 'بعد صلاة المغرب',
       specialNotes: announcement.specialNotes || '',
       liveBroadcast: announcement.liveBroadcast || false,
       womenHallAvailable: announcement.womenHallAvailable ?? true,
@@ -214,10 +237,8 @@ export default function App() {
     setTimeout(() => scrollToForm(), 200);
   };
 
-  const primarySheikhObj = sheikhs.find((s) => s.id === formData.primarySheikhId);
-  const secondarySheikhsObjs = sheikhs.filter((s) =>
-    formData.secondarySheikhIds.includes(s.id)
-  );
+  const primarySheikhObj = resolvePrimarySheikh(formData, sheikhs);
+  const secondarySheikhsObjs = resolveSecondarySheikhs(formData, sheikhs);
   const mosqueObj = mosques.find((m) => m.id === formData.mosqueId);
   const stateObj = states.find((s) => s.id === formData.stateId);
   const localityObj = localities.find((l) => l.id === formData.localityId);
@@ -245,7 +266,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500/30 selection:text-amber-200">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-brand-500/30 selection:text-brand-200">
       {/* Top Navbar */}
       <Navbar
         identity={identity}
@@ -253,37 +274,64 @@ export default function App() {
         isAdminLoggedIn={isAdminLoggedIn}
       />
 
-      {/* Hero Section */}
-      <section className="relative overflow-hidden py-16 md:py-24 border-b border-slate-900 bg-gradient-to-b from-slate-900/50 via-slate-950 to-slate-950">
-        <div className="absolute inset-0 bg-islamic-pattern opacity-60 pointer-events-none" />
-        <div className="relative max-w-4xl mx-auto px-4 text-center z-10 space-y-6">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-bold font-cairo">
-            <Sparkles className="w-3.5 h-3.5" />
-            منصة إنشاء إعلانات أمانة الدعوة
+      {/* Hero Section: branded navy band with Islamic geometry */}
+      <section className="theme-reset relative overflow-hidden bg-gradient-to-b from-brand-900 via-brand-950 to-[#0b1630] text-white">
+        <div className="absolute inset-0 bg-islamic-geo opacity-[0.06] pointer-events-none" />
+        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[720px] h-[520px] rounded-full bg-brand-500/25 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -right-24 w-80 h-80 rounded-full bg-brand-400/10 blur-3xl pointer-events-none" />
+        <img
+          src="/brand/emblem.png"
+          alt=""
+          aria-hidden="true"
+          className="hidden md:block absolute -left-28 top-1/2 -translate-y-1/2 w-[460px] opacity-[0.07] grayscale brightness-200 pointer-events-none select-none"
+        />
+
+        <div className="relative z-10 max-w-4xl mx-auto px-4 pt-10 pb-20 sm:pt-14 sm:pb-28 md:pt-16 md:pb-32 text-center">
+          <div className="flex justify-center">
+            <BrandWordmark className="h-24 sm:h-32 md:h-36 brightness-0 invert drop-shadow-[0_2px_12px_rgba(0,0,0,0.35)]" />
           </div>
 
-          <h1 className="text-4xl md:text-6xl font-black text-white font-cairo tracking-tight">
+          {/* Ornamental divider */}
+          <div className="mt-6 sm:mt-8 flex items-center justify-center gap-3 text-brand-300" aria-hidden="true">
+            <span className="h-px w-16 sm:w-24 bg-gradient-to-l from-brand-300/70 to-transparent" />
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
+              <path d="M12 1l2.6 6.3L21 9l-5 4.3L17.4 21 12 17.3 6.6 21 8 13.3 3 9l6.4-1.7z" />
+            </svg>
+            <span className="h-px w-16 sm:w-24 bg-gradient-to-r from-brand-300/70 to-transparent" />
+          </div>
+
+          <h1 className="mt-5 sm:mt-6 text-3xl sm:text-4xl md:text-5xl font-extrabold text-white font-display leading-tight">
             المصمم الذكي
           </h1>
 
-          <p className="text-base md:text-lg text-slate-300 max-w-2xl mx-auto font-tajawal leading-relaxed">
-            أنشئ إعلانات خطب الجمعة، المحاضرات الكبرى، والدورات العلمية الخاصة بجماعة أنصار السنة المحمدية بالسودان بدقة واحترافية وبأقل من دقيقتين.
+          <p className="mt-4 text-sm sm:text-base md:text-lg text-brand-100/80 max-w-2xl mx-auto font-tajawal leading-relaxed">
+            أنشئ إعلانات خطب الجمعة والمحاضرات والدورات العلمية بالهوية الرسمية للجماعة، جاهزة للنشر في أقل من دقيقتين.
           </p>
 
-          <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
+          <div className="mt-7 sm:mt-9 flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
               onClick={scrollToForm}
-              className="py-4 px-8 rounded-2xl bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-black text-base shadow-xl shadow-amber-500/20 flex items-center gap-2.5 cursor-pointer transition-all active:scale-[0.98]"
+              className="w-full sm:w-auto py-3.5 sm:py-4 px-9 rounded-2xl bg-white hover:bg-brand-50 text-brand-800 font-bold text-base shadow-xl shadow-black/25 flex items-center justify-center gap-2.5 transition-all active:scale-[0.98]"
             >
               <span>إنشاء إعلان جديد</span>
               <ArrowDown className="w-4 h-4" />
             </button>
           </div>
         </div>
+
+        {/* Soft arch into the light page */}
+        <svg
+          className="absolute bottom-0 inset-x-0 w-full h-10 sm:h-16 md:h-20"
+          viewBox="0 0 1440 80"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <path d="M0 80V40C240 8 480 0 720 0s480 8 720 40v40Z" fill="#f1f5f9" />
+        </svg>
       </section>
 
       {/* Main Creation Form Section */}
-      <main ref={formSectionRef} className="flex-1 py-12 md:py-16 px-4 max-w-7xl mx-auto w-full">
+      <main ref={formSectionRef} className="flex-1 py-6 sm:py-10 md:py-14 px-3 sm:px-4 max-w-7xl mx-auto w-full scroll-mt-16 sm:scroll-mt-20">
         <AnnouncementForm
           formData={formData}
           setFormData={setFormData}
@@ -291,28 +339,56 @@ export default function App() {
           states={states}
           localities={localities}
           mosques={mosques}
+          templates={templates}
+          isAdminLoggedIn={isAdminLoggedIn}
+          onSheikhsChanged={setSheikhs}
           onGenerateDesign={() => setIsPreviewOpen(true)}
         />
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-900 bg-slate-950/90 py-8 px-4 text-center text-xs text-slate-500 font-tajawal">
-        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div>
-            جميع الحقوق محفوظة © {new Date().getFullYear()} جماعة أنصار السنة المحمدية بالسودان – أمانة الدعوة
+      <footer className="border-t border-slate-800 bg-slate-900 pt-8 sm:pt-10 px-4 pb-safe">
+        <div className="max-w-5xl mx-auto flex flex-col items-center gap-5 text-center">
+          <div className="flex items-center gap-3">
+            <BrandEmblem customUrl={identity.group_logo_url} className="h-14 w-14" />
+            <div className="text-right">
+              <div className="text-sm font-bold text-slate-100 font-display">
+                جماعة أنصار السنة المحمدية بالسودان
+              </div>
+              <div className="text-xs text-brand-300 font-tajawal font-medium">أمانة الدعوة</div>
+            </div>
           </div>
-          <div className="flex items-center gap-3 dir-ltr text-slate-400">
-            <span>design.ansaralsuna.net</span>
-            <span>•</span>
-            <a
-              href="https://ansaralsuna.net"
-              target="_blank"
-              rel="noreferrer"
-              className="hover:text-amber-400 transition-colors flex items-center gap-1"
-            >
-              <span>ansaralsuna.net</span>
-              <ExternalLink className="w-3 h-3" />
+
+          <nav aria-label="حسابات الجماعة" className="flex flex-wrap items-center justify-center gap-2">
+            {SOCIAL_LINKS.map(({ label, href, icon: Icon }) => (
+              <a
+                key={label}
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                title={label}
+                aria-label={label}
+                className="w-10 h-10 rounded-full border border-slate-700 text-slate-400 hover:text-brand-400 hover:border-brand-500/50 hover:bg-brand-500/10 flex items-center justify-center transition-colors"
+              >
+                <Icon className="w-4 h-4" />
+              </a>
+            ))}
+          </nav>
+
+          <div dir="ltr" className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-slate-400 font-tajawal">
+            <a href="https://www.ansar-alsuna.net" target="_blank" rel="noreferrer" className="hover:text-brand-400">
+              www.ansar-alsuna.net
             </a>
+            <span className="text-slate-600">•</span>
+            <a href="https://wa.me/249128488888" target="_blank" rel="noreferrer" className="hover:text-brand-400">
+              +249 128 488 888
+            </a>
+            <span className="text-slate-600">•</span>
+            <span>@AnsarAlsuna</span>
+          </div>
+
+          <div className="w-full border-t border-slate-800 py-4 text-[11px] sm:text-xs text-slate-500 font-tajawal">
+            جميع الحقوق محفوظة © {new Date().getFullYear()} جماعة أنصار السنة المحمدية بالسودان – أمانة الدعوة
           </div>
         </div>
       </footer>

@@ -12,6 +12,7 @@ export const UPLOAD_DIRS = {
   calligraphy: path.join(process.cwd(), 'uploads', 'calligraphy'),
   backgrounds: path.join(process.cwd(), 'uploads', 'backgrounds'),
   designs: path.join(process.cwd(), 'uploads', 'designs'),
+  references: path.join(process.cwd(), 'uploads', 'references'),
 };
 
 // Ensure all upload directories exist
@@ -74,6 +75,8 @@ export interface AppStore {
   mediaAssets: any[];
   announcements: any[];
   admins: any[];
+  // Past announcements uploaded as style references for new designs
+  styleReferences?: any[];
 }
 
 // Initial realistic data for Ansar Al-Sunna Sudan
@@ -373,6 +376,7 @@ export function saveLocalStore(store: AppStore): void {
 
 // In-memory reference that stays in sync with file
 let memoryStore = loadLocalStore();
+memoryStore.styleReferences ??= [];
 
 export const db = {
   isPostgresConnected: () => isPostgresConnected,
@@ -580,6 +584,64 @@ export const db = {
     memoryStore.announcements.push(newRecord);
     saveLocalStore(memoryStore);
     return newRecord;
+  },
+
+  // Style references (archive of past announcements)
+  async getStyleReferences() {
+    return memoryStore.styleReferences!;
+  },
+
+  async createStyleReference(data: { image_url: string; announcement_type?: string; notes?: string }) {
+    const refs = memoryStore.styleReferences!;
+    const reference = {
+      id: refs.length ? Math.max(...refs.map((r) => r.id)) + 1 : 1,
+      image_url: data.image_url,
+      announcement_type: data.announcement_type || '',
+      notes: data.notes || '',
+      status: 'pending',
+      style: null,
+      error: '',
+      created_at: new Date().toISOString(),
+    };
+    refs.push(reference);
+    saveLocalStore(memoryStore);
+    return reference;
+  },
+
+  async updateStyleReference(id: number, updates: any) {
+    const refs = memoryStore.styleReferences!;
+    const idx = refs.findIndex((r) => r.id === Number(id));
+    if (idx === -1) return null;
+    refs[idx] = { ...refs[idx], ...updates };
+    saveLocalStore(memoryStore);
+    return refs[idx];
+  },
+
+  async deleteStyleReference(id: number) {
+    memoryStore.styleReferences = memoryStore.styleReferences!.filter((r) => r.id !== Number(id));
+    memoryStore.templates = memoryStore.templates.filter((t) => t.source_reference_id !== Number(id));
+    saveLocalStore(memoryStore);
+    return true;
+  },
+
+  // Each analyzed reference becomes a template rendered from its extracted style
+  async upsertArchiveTemplate(referenceId: number, style: any) {
+    const id = `archive-${referenceId}`;
+    const template = {
+      id,
+      name: style.name,
+      description: style.description,
+      category: 'archive',
+      is_active: true,
+      source_reference_id: Number(referenceId),
+      suits_types: style.suits_types,
+      style,
+    };
+    const idx = memoryStore.templates.findIndex((t) => t.id === id);
+    if (idx === -1) memoryStore.templates.push(template);
+    else memoryStore.templates[idx] = { ...template, is_active: memoryStore.templates[idx].is_active };
+    saveLocalStore(memoryStore);
+    return template;
   },
 
   async deleteAnnouncement(id: number) {

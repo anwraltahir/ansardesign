@@ -1,4 +1,4 @@
-import { Sheikh, Mosque, State, Locality, VisualIdentity, DesignTemplate, AnnouncementFormData } from '../types';
+import { Sheikh, Mosque, State, Locality, VisualIdentity, DesignTemplate, AnnouncementFormData, StyleReference } from '../types';
 
 const API_BASE = '/api';
 
@@ -194,7 +194,7 @@ export const api = {
   },
 
   // File Upload
-  async uploadFile(file: File, category: 'sheikhs' | 'mosques' | 'logos' | 'calligraphy' | 'backgrounds' | 'designs') {
+  async uploadFile(file: File, category: 'sheikhs' | 'mosques' | 'logos' | 'calligraphy' | 'backgrounds' | 'designs' | 'references') {
     const formData = new FormData();
     formData.append('file', file);
     const res = await fetch(`${API_BASE}/upload?category=${category}`, {
@@ -223,6 +223,47 @@ export const api = {
     const resData = await res.json();
     if (!res.ok) throw new Error(resData.error || 'فشل حفظ الإعلان');
     return resData;
+  },
+
+  // Style references (past announcements) & AI analysis
+  async getAiStatus(): Promise<{ enabled: boolean }> {
+    const res = await fetch(`${API_BASE}/ai/status`);
+    return res.json();
+  },
+
+  async getStyleReferences(): Promise<StyleReference[]> {
+    const res = await fetch(`${API_BASE}/style-references`, { headers: { ...getAuthHeader() } });
+    if (!res.ok) throw new Error('فشل جلب الإعلانات المرجعية');
+    return res.json();
+  },
+
+  async createStyleReference(data: { image_url: string; announcement_type?: string; notes?: string }): Promise<StyleReference> {
+    const res = await fetch(`${API_BASE}/style-references`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(data),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'فشل حفظ الإعلان المرجعي');
+    return body;
+  },
+
+  async analyzeStyleReference(id: number): Promise<{ reference: StyleReference; template: DesignTemplate }> {
+    const res = await fetch(`${API_BASE}/style-references/${id}/analyze`, {
+      method: 'POST',
+      headers: { ...getAuthHeader() },
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'فشل تحليل التصميم');
+    return body;
+  },
+
+  async deleteStyleReference(id: number) {
+    const res = await fetch(`${API_BASE}/style-references/${id}`, {
+      method: 'DELETE',
+      headers: { ...getAuthHeader() },
+    });
+    return res.json();
   },
 
   async deleteAnnouncement(id: number) {

@@ -1,7 +1,7 @@
 import React from 'react';
-import { AnsarLogoSvg } from './DesignEngine/IslamicDecorations';
+import { BrandEmblem } from './Brand';
 import { VisualIdentity } from '../types';
-import { Shield, Sparkles } from 'lucide-react';
+import { Shield } from 'lucide-react';
 
 interface NavbarProps {
   identity?: VisualIdentity | null;
@@ -11,52 +11,39 @@ interface NavbarProps {
 
 export function Navbar({ identity, onOpenAdmin, isAdminLoggedIn }: NavbarProps) {
   return (
-    <header className="border-b border-slate-800/80 bg-slate-950/70 backdrop-blur-md sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+    <header className="theme-reset sticky top-0 z-40 bg-brand-950/95 backdrop-blur-md border-b border-white/10 shadow-lg shadow-brand-950/20 pt-[env(safe-area-inset-top)]">
+      {/* Brand accent strip */}
+      <div className="h-1 bg-gradient-to-l from-brand-700 via-brand-300 to-brand-700" />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-3">
         {/* Right: Logo and Branding */}
-        <div className="flex items-center gap-3.5">
-          <div className="shrink-0 drop-shadow">
-            {identity?.group_logo_url ? (
-              <img
-                src={identity.group_logo_url}
-                alt="شعار أنصار السنة"
-                className="h-12 w-12 object-contain"
-              />
-            ) : (
-              <AnsarLogoSvg className="h-12 w-12" />
-            )}
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg font-black text-white font-cairo">
-                المصمم الذكي
-              </span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                أمانة الدعوة
-              </span>
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <BrandEmblem
+            customUrl={identity?.group_logo_url}
+            className="shrink-0 h-11 w-11 sm:h-14 sm:w-14 drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)]"
+          />
+          <div className="min-w-0 border-r border-white/15 pr-2.5 sm:pr-3">
+            <div className="text-base sm:text-lg font-bold text-white font-display leading-tight whitespace-nowrap">
+              المصمم الذكي
             </div>
-            <p className="text-xs text-amber-400/80 font-tajawal hidden sm:block">
-              جماعة أنصار السنة المحمدية بالسودان - منصة إنشاء الإعلانات والبرامج الدعوية
+            <p className="text-[11px] sm:text-xs text-brand-300 font-tajawal font-medium truncate">
+              <span className="sm:hidden">أمانة الدعوة</span>
+              <span className="hidden sm:inline">أمانة الدعوة – جماعة أنصار السنة المحمدية بالسودان</span>
             </p>
           </div>
         </div>
 
-        {/* Left: Domain Indicator & Discreet Admin Entry */}
-        <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-400 font-mono dir-ltr">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            design.ansaralsuna.net
-          </div>
-
+        {/* Left: Discreet Admin Entry */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {/* Discreet Admin Lock Button */}
           <button
             onClick={onOpenAdmin}
-            className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`min-h-11 min-w-11 p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
               isAdminLoggedIn
-                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md shadow-amber-500/20'
-                : 'bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border-slate-800 hover:border-slate-700'
+                ? 'bg-white text-brand-800 border-white shadow-md'
+                : 'bg-white/5 hover:bg-white/10 text-brand-100 hover:text-white border-white/15 hover:border-white/25'
             }`}
             title="لوحة إدارة المصمم الذكي (المسؤول)"
+            aria-label={isAdminLoggedIn ? 'لوحة الإدارة' : 'دخول الإدارة'}
           >
             <Shield className="w-4 h-4" />
             <span className="hidden sm:inline">

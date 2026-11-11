@@ -17,6 +17,7 @@ export type TimeType =
   | 'بعد صلاة المغرب'
   | 'بعد صلاة العشاء'
   | 'بعد صلاة الجمعة'
+  | 'وقت صلاة الجمعة'
   | 'وقت محدد';
 
 export interface Sheikh {
@@ -70,12 +71,49 @@ export interface VisualIdentity {
   contact_phone: string;
 }
 
+// Visual style extracted by AI from a past announcement (see server/ai/styleAnalysis.ts)
+export interface PosterStyle {
+  name: string;
+  description: string;
+  suits_types: AnnouncementType[];
+  palette: {
+    background_top: string;
+    background_middle: string;
+    background_bottom: string;
+    accent: string;
+    title: string;
+    text: string;
+    muted: string;
+    card_background: string;
+    card_border: string;
+  };
+  title_font: 'amiri' | 'kufi' | 'cairo' | 'tajawal';
+  ornament: 'islamic-stars' | 'geometric-lattice' | 'mosque-skyline' | 'minimal';
+  corner_ornaments: boolean;
+  card_style: 'glass' | 'solid' | 'outlined';
+  mood_notes: string;
+}
+
 export interface DesignTemplate {
   id: string;
   name: string;
   description: string;
-  category: string;
+  category: string; // 'archive' for templates generated from past announcements
   is_active: boolean;
+  source_reference_id?: number;
+  suits_types?: AnnouncementType[];
+  style?: PosterStyle;
+}
+
+export interface StyleReference {
+  id: number;
+  image_url: string;
+  announcement_type: string;
+  notes: string;
+  status: 'pending' | 'analyzing' | 'done' | 'error';
+  style: PosterStyle | null;
+  error: string;
+  created_at: string;
 }
 
 export interface MultiSession {
@@ -94,6 +132,10 @@ export interface AnnouncementFormData {
   title: string;
   subtitle?: string;
   primarySheikhId: number | null;
+  sheikhPhotoUrl?: string; // which of the sheikh's photos to show on the poster
+  // Sheikhs typed in by hand for this announcement only (not in the approved list)
+  manualSheikh?: { title: string; name: string; role: string };
+  manualCoSheikhs?: string[];
   secondarySheikhIds: number[];
   stateId: number | null;
   localityId: number | null;

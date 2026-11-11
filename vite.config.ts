@@ -2,7 +2,6 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
-import { app as expressApp } from './server/app.ts';
 
 export default defineConfig(() => {
   return {
@@ -11,7 +10,10 @@ export default defineConfig(() => {
       tailwindcss(),
       {
         name: 'express-api-middleware',
-        configureServer(server) {
+        // Load the API only for the dev server, so `vite build` never runs server start-up code
+        // (it creates the uploads folders, which would end up owned by whoever ran the build)
+        async configureServer(server) {
+          const { app: expressApp } = await import('./server/app.ts');
           server.middlewares.use(expressApp);
         },
       },

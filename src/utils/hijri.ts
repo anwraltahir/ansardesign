@@ -32,16 +32,49 @@ export const HIJRI_MONTHS = [
   'ذو الحجة',
 ];
 
+// Parse "YYYY-MM-DD" as a local date (new Date('YYYY-MM-DD') is UTC and can shift the day)
+export function parseLocalDate(dateString: string): Date {
+  const [year, month, day] = (dateString || '').split('-').map(Number);
+  if (!year || !month || !day) return new Date(NaN);
+  return new Date(year, month - 1, day);
+}
+
+export function toLocalISODate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// Upcoming Friday (next week's if today is Friday) as "YYYY-MM-DD"
+export function getNextFridayISO(): string {
+  const d = new Date();
+  const diff = (5 - d.getDay() + 7) % 7 || 7;
+  d.setDate(d.getDate() + diff);
+  return toLocalISODate(d);
+}
+
+// Today (if Friday) and the following Fridays, as "YYYY-MM-DD"
+export function getUpcomingFridays(count: number): string[] {
+  const d = new Date();
+  d.setDate(d.getDate() + ((5 - d.getDay() + 7) % 7));
+  return Array.from({ length: count }, (_, i) => {
+    const friday = new Date(d);
+    friday.setDate(d.getDate() + i * 7);
+    return toLocalISODate(friday);
+  });
+}
+
 export function getArabicDayName(dateString: string): string {
   if (!dateString) return '';
-  const date = new Date(dateString);
+  const date = parseLocalDate(dateString);
   if (isNaN(date.getTime())) return '';
   return ARABIC_DAYS[date.getDay()];
 }
 
 export function isFriday(dateString: string): boolean {
   if (!dateString) return false;
-  const date = new Date(dateString);
+  const date = parseLocalDate(dateString);
   if (isNaN(date.getTime())) return false;
   return date.getDay() === 5; // Friday is 5
 }
@@ -57,7 +90,7 @@ export function formatGregorianArabic(dateString: string): string {
 // Convert Gregorian to Hijri approximate date
 export function toHijriDate(dateString: string): string {
   if (!dateString) return '';
-  const date = new Date(dateString);
+  const date = parseLocalDate(dateString);
   if (isNaN(date.getTime())) return '';
 
   // Use Intl if supported by environment

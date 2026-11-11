@@ -13,6 +13,7 @@ import {
   updateAdminProfile,
   AuthenticatedRequest,
 } from './auth.ts';
+import { analyzeReferenceStyle, isAiEnabled, StyleAnalysisError } from './ai/styleAnalysis.ts';
 
 export const app = express();
 
@@ -34,6 +35,7 @@ const storage = multer.diskStorage({
     else if (category === 'mosques' || category === 'mosque') targetDir = UPLOAD_DIRS.mosques;
     else if (category === 'logos' || category === 'logo') targetDir = UPLOAD_DIRS.logos;
     else if (category === 'backgrounds' || category === 'background') targetDir = UPLOAD_DIRS.backgrounds;
+    else if (category === 'references') targetDir = UPLOAD_DIRS.references;
 
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
@@ -137,7 +139,7 @@ app.get('/api/sheikhs', async (req: Request, res: Response) => {
 
 app.post('/api/sheikhs', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { full_name, short_name, title, role_description, photo_url, calligraphy_url, bio, is_active } = req.body;
+    const { full_name, short_name, title, role_description, photo_url, additional_photos, calligraphy_url, bio, is_active } = req.body;
     if (!full_name || !short_name) {
       return res.status(400).json({ error: 'الاسم الكامل والاسم المختصر مطلوبان' });
     }
@@ -147,6 +149,7 @@ app.post('/api/sheikhs', requireAdminAuth, async (req: AuthenticatedRequest, res
       title: title || '',
       role_description: role_description || '',
       photo_url: photo_url || '',
+      additional_photos: Array.isArray(additional_photos) ? additional_photos : [],
       calligraphy_url: calligraphy_url || '',
       bio: bio || '',
       is_active: is_active ?? true,
@@ -360,6 +363,69 @@ app.post('/api/upload', requireAdminAuth, upload.single('file'), (req: Authentic
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// 6b. Style References (past announcements) & AI style analysis
+// ==========================================
+
+app.get('/api/ai/status', (req: Request, res: Response) => {
+  return res.json({ enabled: isAiEnabled() });
+});
+
+app.get('/api/style-references', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    return res.json(await db.getStyleReferences());
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/style-references', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { image_url, announcement_type, notes } = req.body;
+    if (!image_url || !/^\/uploads\/references\/[\w.-]+$/.test(image_url)) {
+      return res.status(400).json({ error: 'يجب رفع صورة الإعلان المرجعي أولاً' });
+    }
+    return res.json(await db.createStyleReference({ image_url, announcement_type, notes }));
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/style-references/:id', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await db.deleteStyleReference(parseInt(req.params.id, 10));
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/style-references/:id/analyze', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(req.params.id, 10);
+  const refs = await db.getStyleReferences();
+  const reference = refs.find((r) => r.id === id);
+  if (!reference) return res.status(404).json({ error: 'الإعلان المرجعي غير موجود' });
+
+  try {
+    await db.updateStyleReference(id, { status: 'analyzing', error: '' });
+    const archiveStyles = refs.filter((r) => r.id !== id && r.status === 'done' && r.style).map((r) => r.style);
+    const style = await analyzeReferenceStyle({
+      imageUrl: reference.image_url,
+      announcementType: reference.announcement_type,
+      notes: reference.notes,
+      archiveStyles,
+    });
+    const template = await db.upsertArchiveTemplate(id, style);
+    const updated = await db.updateStyleReference(id, { status: 'done', style, error: '' });
+    return res.json({ reference: updated, template });
+  } catch (err: any) {
+    const message = err instanceof StyleAnalysisError ? err.message : `تعذر تحليل التصميم: ${err.message}`;
+    console.error('Style analysis failed:', err);
+    await db.updateStyleReference(id, { status: 'error', error: message });
+    return res.status(err instanceof StyleAnalysisError ? 400 : 502).json({ error: message });
   }
 });
 

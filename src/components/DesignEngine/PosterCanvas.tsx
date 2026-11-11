@@ -6,14 +6,17 @@ import {
   State,
   Locality,
   VisualIdentity,
+  DesignTemplate,
+  PosterStyle,
 } from '../../types';
 import {
   BismillahSvg,
-  AnsarLogoSvg,
   CornerOrnament,
   IslamicStar,
   MosqueSkyline,
 } from './IslamicDecorations';
+import { BrandEmblem } from '../Brand';
+import { pickSheikhPhoto } from '../../utils/sheikh';
 import { formatGregorianArabic, toHijriDate } from '../../utils/hijri';
 import { Calendar, Clock, MapPin, Radio, Users, BookOpen } from 'lucide-react';
 
@@ -26,6 +29,39 @@ interface PosterCanvasProps {
   locality?: Locality | null;
   identity?: VisualIdentity | null;
   aspectRatio?: '4:5' | '1:1' | '9:16' | 'print';
+  // Template object; archive templates carry an AI-extracted style
+  template?: DesignTemplate;
+}
+
+const TITLE_FONTS: Record<PosterStyle['title_font'], string> = {
+  amiri: 'font-amiri',
+  kufi: 'font-kufi',
+  cairo: 'font-cairo',
+  tajawal: 'font-tajawal',
+};
+
+// Maps an archive style onto the poster: its own variables plus the palette tokens the layout already
+// uses (amber for accents/titles, slate for body text), so every element follows the extracted colors
+function archiveStyleVars(style: PosterStyle): React.CSSProperties {
+  const p = style.palette;
+  return {
+    background: `linear-gradient(to bottom, ${p.background_top}, ${p.background_middle}, ${p.background_bottom})`,
+    '--poster-accent': p.accent,
+    '--poster-title': p.title,
+    '--poster-card': p.card_background,
+    '--poster-card-border': p.card_border,
+    '--color-amber-100': p.title,
+    '--color-amber-200': p.title,
+    '--color-amber-300': p.accent,
+    '--color-amber-400': p.accent,
+    '--color-amber-500': p.accent,
+    '--color-amber-700': p.accent,
+    '--color-white': p.title,
+    '--color-slate-100': p.text,
+    '--color-slate-200': p.text,
+    '--color-slate-300': p.text,
+    '--color-slate-400': p.muted,
+  } as React.CSSProperties;
 }
 
 export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
@@ -39,6 +75,7 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
       locality,
       identity,
       aspectRatio = '4:5',
+      template,
     },
     ref
   ) => {
@@ -78,8 +115,26 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
       state?.name,
     ].filter(Boolean);
 
+    const archiveStyle = template?.style;
+
     // Template specific styling rules
     const getTemplateTheme = () => {
+      if (archiveStyle) {
+        // Colors come from CSS variables set on the root (see archiveStyleVars)
+        const card =
+          archiveStyle.card_style === 'outlined'
+            ? 'bg-transparent border-[var(--poster-card-border)]'
+            : 'bg-[var(--poster-card)] border-[var(--poster-card-border)]';
+        return {
+          bg: '',
+          border: 'border-[var(--poster-accent)]/50',
+          accent: 'text-[var(--poster-accent)]',
+          badgeBg: `${card} text-[var(--poster-title)]`,
+          cardBg: card,
+          goldText: 'text-[var(--poster-accent)]',
+          divider: 'border-[var(--poster-card-border)]',
+        };
+      }
       switch (templateId) {
         case 'official-blue':
           return {
@@ -166,22 +221,30 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
     };
 
     const theme = getTemplateTheme();
+    const sheikhPhoto = pickSheikhPhoto(primarySheikh, formData.sheikhPhotoUrl);
 
     return (
       <div
         ref={ref}
         id="ansar-poster-canvas"
-        style={containerStyle}
+        style={archiveStyle ? { ...containerStyle, ...archiveStyleVars(archiveStyle) } : containerStyle}
         dir="rtl"
-        className={`relative flex flex-col justify-between overflow-hidden text-slate-100 font-sans select-none ${theme.bg} p-12`}
+        className={`theme-reset relative flex flex-col justify-between overflow-hidden text-slate-100 font-sans select-none ${theme.bg} p-12`}
       >
         {/* Ambient Geometric Islamic Background Pattern */}
-        <div className="absolute inset-0 bg-islamic-stars opacity-40 pointer-events-none" />
+        {(!archiveStyle || archiveStyle.ornament === 'islamic-stars') && (
+          <div className="absolute inset-0 bg-islamic-stars opacity-40 pointer-events-none" />
+        )}
+        {archiveStyle?.ornament === 'geometric-lattice' && (
+          <div className="absolute inset-0 bg-islamic-geo opacity-[0.08] pointer-events-none" />
+        )}
 
         {/* Architectural Mosque Skyline in background */}
-        <div className="absolute bottom-16 inset-x-0 opacity-15 pointer-events-none flex justify-center">
-          <MosqueSkyline className="w-full h-40 text-amber-400" />
-        </div>
+        {(!archiveStyle || archiveStyle.ornament === 'mosque-skyline') && (
+          <div className="absolute bottom-16 inset-x-0 opacity-15 pointer-events-none flex justify-center">
+            <MosqueSkyline className="w-full h-40 text-amber-400" />
+          </div>
+        )}
 
         {/* Outer Ornamental Double Frame */}
         <div
@@ -192,18 +255,22 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
         />
 
         {/* Four Ornamental Corners */}
-        <div className="absolute top-6 right-6 pointer-events-none z-20">
-          <CornerOrnament className="w-20 h-20 text-amber-400" />
-        </div>
-        <div className="absolute top-6 left-6 pointer-events-none z-20 -scale-x-100">
-          <CornerOrnament className="w-20 h-20 text-amber-400" />
-        </div>
-        <div className="absolute bottom-6 right-6 pointer-events-none z-20 -scale-y-100">
-          <CornerOrnament className="w-20 h-20 text-amber-400" />
-        </div>
-        <div className="absolute bottom-6 left-6 pointer-events-none z-20 -scale-x-100 -scale-y-100">
-          <CornerOrnament className="w-20 h-20 text-amber-400" />
-        </div>
+        {(!archiveStyle || archiveStyle.corner_ornaments) && (
+          <>
+            <div className="absolute top-6 right-6 pointer-events-none z-20">
+              <CornerOrnament className="w-20 h-20 text-amber-400" />
+            </div>
+            <div className="absolute top-6 left-6 pointer-events-none z-20 -scale-x-100">
+              <CornerOrnament className="w-20 h-20 text-amber-400" />
+            </div>
+            <div className="absolute bottom-6 right-6 pointer-events-none z-20 -scale-y-100">
+              <CornerOrnament className="w-20 h-20 text-amber-400" />
+            </div>
+            <div className="absolute bottom-6 left-6 pointer-events-none z-20 -scale-x-100 -scale-y-100">
+              <CornerOrnament className="w-20 h-20 text-amber-400" />
+            </div>
+          </>
+        )}
 
         {/* ======================================================== */}
         {/* 1. HEADER SECTION (Emblem, Bismillah, Dawah Identity) */}
@@ -218,15 +285,7 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
           <div className="flex items-center justify-center gap-6 w-full max-w-4xl border-b border-amber-500/25 pb-4">
             {/* Logo */}
             <div className="shrink-0 drop-shadow-lg">
-              {identity?.group_logo_url ? (
-                <img
-                  src={identity.group_logo_url}
-                  alt="شعار أنصار السنة"
-                  className="h-20 w-20 object-contain"
-                />
-              ) : (
-                <AnsarLogoSvg className="h-20 w-20" />
-              )}
+              <BrandEmblem customUrl={identity?.group_logo_url} className="h-20 w-20" />
             </div>
 
             {/* Titles */}
@@ -262,8 +321,8 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
         {/* 2. ANNOUNCEMENT BADGE & MAIN TITLE */}
         {/* ======================================================== */}
         <div className="relative z-20 flex flex-col items-center text-center my-auto py-2">
-          {/* Announcement Type Badge */}
-          <div className="mb-4">
+          {/* Announcement Type Badge (the sermon heading already names the type) */}
+          <div className={`mb-4 ${formData.type === 'خطبة جمعة' ? 'hidden' : ''}`}>
             <div
               className={`inline-flex items-center gap-2 px-8 py-2 rounded-full border text-lg font-bold font-tajawal shadow-lg ${theme.badgeBg}`}
             >
@@ -274,8 +333,8 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
           </div>
 
           {/* Main Title / Topic */}
-          <h1 className="text-4xl md:text-5xl font-black font-cairo text-amber-100 leading-tight max-w-4xl drop-shadow-md px-4">
-            {formData.title || 'عنوان الفعالية الدعوية'}
+          <h1 className={`text-4xl md:text-5xl font-black ${archiveStyle ? TITLE_FONTS[archiveStyle.title_font] : 'font-cairo'} text-amber-100 leading-tight max-w-4xl drop-shadow-md px-4`}>
+            {formData.type === 'خطبة جمعة' ? 'خطبة الجمعة' : formData.title || 'عنوان الفعالية الدعوية'}
           </h1>
 
           {/* Subtitle / Topic details */}
@@ -362,10 +421,10 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
             {/* Left: Sheikh Photo Medallion */}
             <div className="shrink-0 relative">
               <div className="w-36 h-36 md:w-44 md:h-44 rounded-full p-1.5 border-2 border-amber-400/80 shadow-2xl bg-gradient-to-b from-amber-400/30 to-amber-700/30 flex items-center justify-center overflow-hidden">
-                {primarySheikh?.photo_url ? (
+                {sheikhPhoto ? (
                   <img
-                    src={primarySheikh.photo_url}
-                    alt={primarySheikh.full_name}
+                    src={sheikhPhoto}
+                    alt={primarySheikh?.full_name}
                     className="w-full h-full object-cover rounded-full"
                   />
                 ) : (
@@ -479,7 +538,7 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
           {/* Official Domain */}
           <div className="flex items-center gap-2">
             <IslamicStar className="w-3.5 h-3.5 text-amber-400" />
-            <span className="font-bold text-amber-100 dir-ltr">
+            <span dir="ltr" className="font-bold text-amber-100">
               design.ansaralsuna.net
             </span>
             <span>|</span>
@@ -494,7 +553,7 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
           </div>
 
           {/* Contact phone */}
-          <div className="text-amber-300 font-semibold dir-ltr">
+          <div dir="ltr" className="text-amber-300 font-semibold">
             {identity?.contact_phone || '+249 912345678'}
           </div>
         </div>
