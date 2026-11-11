@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Cairo', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+}
+
+.font-amiri {
+  font-family: 'Amiri', serif;
+}
+
+.font-cairo {
+  font-family: 'Cairo', sans-serif;
+}
+
+.font-tajawal {
+  font-family: 'Tajawal', sans-serif;
+}
+
+.font-kufi {
+  font-family: 'Reem Kufi', sans-serif;
+}
+
+/* Islamic pattern background simulation */
+.bg-islamic-pattern {
+  background-image: radial-gradient(rgba(217, 119, 6, 0.12) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+.bg-islamic-stars {
+  background-image: radial-gradient(rgba(245, 158, 11, 0.15) 1.5px, transparent 0), radial-gradient(rgba(16, 185, 129, 0.1) 1.5px, transparent 0);
+  background-size: 32px 32px;
+  background-position: 0 0, 16px 16px;
+}
+
+/* Golden text and borders */
+.text-gold {
+  background: linear-gradient(135deg, #fce089 0%, #dfa037 50%, #996215 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.border-gold {
+  border-image: linear-gradient(135deg, #fce089 0%, #dfa037 50%, #996215 100%) 1;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}

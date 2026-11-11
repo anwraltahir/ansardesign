@@ -1,0 +1,6 @@
+{
+  "name": "المصمم الذكي - أمانة الدعوة",
+  "description": "منصة إنشاء الإعلانات والبرامج الدعوية لجماعة أنصار السنة المحمدية بالسودان - أمانة الدعوة",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
