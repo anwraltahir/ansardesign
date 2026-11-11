@@ -14,7 +14,6 @@ import {
   Download,
   X,
   Sparkles,
-  Layers,
   CheckCircle2,
   Share2,
   RefreshCw,
@@ -128,8 +127,6 @@ export function PreviewModal({
 
   // Friday sermons have no announced title; they're filed under the type itself
   const effectiveTitle = formData.type === 'خطبة جمعة' ? 'خطبة الجمعة' : formData.title;
-
-  const activeTemplates = templates.filter((tpl) => tpl.is_active !== false);
 
   const getFileName = () => {
     const cleanTitle = (effectiveTitle || 'إعلان_دعوي')
@@ -285,31 +282,6 @@ export function PreviewModal({
         </div>
 
         <div className="flex-1 overflow-y-auto overscroll-contain p-4 md:p-6 space-y-5 md:space-y-6">
-          {/* Quick Template Switcher */}
-          <div>
-            <label className="text-xs font-bold text-brand-300 flex items-center gap-2 mb-2 font-cairo">
-              <Layers className="w-4 h-4" />
-              نمط وقالب التصميم:
-            </label>
-            <div className="flex md:grid md:grid-cols-2 gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 md:mx-0 md:px-0 snap-x">
-              {activeTemplates.map((tpl) => (
-                <button
-                  key={tpl.id}
-                  onClick={() => setFormData((prev) => ({ ...prev, templateId: tpl.id }))}
-                  aria-pressed={formData.templateId === tpl.id}
-                  className={`${optionClass(formData.templateId === tpl.id)} shrink-0 snap-start whitespace-nowrap md:whitespace-normal text-right font-medium`}
-                >
-                  {tpl.name}
-                  {tpl.category === 'archive' && (
-                    <span className="mr-1.5 inline-block align-middle text-[10px] px-1.5 py-0.5 rounded bg-brand-500/15 text-brand-300 font-bold">
-                      من الأرشيف
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Aspect Ratio Selector */}
           <div>
             <label className="text-xs font-bold text-slate-300 block mb-2 font-cairo">

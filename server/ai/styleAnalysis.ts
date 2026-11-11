@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import Anthropic from '@anthropic-ai/sdk';
-import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod/v4';
+import { getActiveProvider, getProviderConfig } from '../settings.ts';
+import { AiProviderError, PROVIDERS } from './providers.ts';
 
 // Announcement types the poster engine knows; the model may only pick from these
 export const ANNOUNCEMENT_TYPES = [
@@ -46,7 +46,6 @@ export type PosterStyle = z.infer<typeof PosterStyleSchema>;
 
 export class StyleAnalysisError extends Error {}
 
-const MODEL = 'claude-opus-5-5';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MEDIA_TYPES: Record<string, 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'> = {
   '.png': 'image/png',
@@ -57,13 +56,7 @@ const MEDIA_TYPES: Record<string, 'image/png' | 'image/jpeg' | 'image/webp' | 'i
 };
 
 export function isAiEnabled(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
-}
-
-let client: Anthropic | null = null;
-function getClient(): Anthropic {
-  if (!client) client = new Anthropic();
-  return client;
+  return getActiveProvider() !== null;
 }
 
 // The system prompt carries the archive's existing styles so new ones stay in the same family
@@ -114,9 +107,11 @@ export async function analyzeReferenceStyle(params: {
   announcementType?: string;
   notes?: string;
   archiveStyles: PosterStyle[];
-}): Promise<PosterStyle> {
-  if (!isAiEnabled()) {
-    throw new StyleAnalysisError('الذكاء الاصطناعي غير مفعّل: أضف ANTHROPIC_API_KEY إلى ملف .env ثم أعد تشغيل الخدمة.');
+}): Promise<{ style: PosterStyle; provider: string }> {
+  const provider = getActiveProvider();
+  const config = provider && getProviderConfig(provider);
+  if (!provider || !config) {
+    throw new StyleAnalysisError('الذكاء الاصطناعي غير مفعّل: أضف مفتاحاً من «لوحة الإدارة ← الذكاء الاصطناعي».');
   }
 
   const image = resolveReferenceImage(params.imageUrl);
@@ -127,32 +122,27 @@ export async function analyzeReferenceStyle(params: {
     .filter(Boolean)
     .join('\n');
 
-  const response = await getClient().beta.messages.parse({
-    model: MODEL,
-    max_tokens: 16000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
-    thinking: { type: 'adaptive' },
-    output_config: { effort: 'high', format: betaZodOutputFormat(PosterStyleSchema) },
-    system: buildSystemPrompt(params.archiveStyles),
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } },
-          { type: 'text', text: `${context}\n\nExtract the style spec for this announcement.` },
-        ],
-      },
-    ],
-  });
+  let raw: unknown;
+  try {
+    raw = await PROVIDERS[provider].analyze({
+      apiKey: config.key,
+      model: config.model,
+      system: buildSystemPrompt(params.archiveStyles),
+      image,
+      text: `${context}\n\nExtract the style spec for this announcement.`,
+      schema: PosterStyleSchema,
+    });
+  } catch (err) {
+    if (err instanceof AiProviderError) throw new StyleAnalysisError(err.message);
+    throw err;
+  }
 
-  if (response.stop_reason === 'refusal') {
-    throw new StyleAnalysisError('اعتذر النموذج عن تحليل هذه الصورة.');
+  // Every provider is held to the same schema before anything reaches the renderer
+  const parsed = PosterStyleSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new StyleAnalysisError(`لم يُرجع ${PROVIDERS[provider].label} وصفاً صالحاً للأسلوب. حاول مرة أخرى.`);
   }
-  if (!response.parsed_output) {
-    throw new StyleAnalysisError('لم يُرجع النموذج وصفاً صالحاً للأسلوب. حاول مرة أخرى.');
-  }
-  return sanitizeStyle(response.parsed_output);
+  return { style: sanitizeStyle(parsed.data), provider: PROVIDERS[provider].label };
 }
 
 // Guard the renderer against malformed colors: anything that isn't hex falls back to a safe default

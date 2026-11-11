@@ -7,6 +7,8 @@ import {
   VisualIdentity,
   DesignTemplate,
   StyleReference,
+  AiSettings,
+  AiProvider,
 } from '../../types';
 import { api } from '../../services/api';
 import {
@@ -14,7 +16,6 @@ import {
   Building2,
   Map,
   Shield,
-  Layers,
   Image as ImageIcon,
   Database,
   Archive,
@@ -37,6 +38,35 @@ import {
 import { getSheikhPhotos } from '../../utils/sheikh';
 import { PhotoGalleryField } from './PhotoGalleryField';
 
+const AI_PROVIDER_ORDER: AiProvider[] = ['claude', 'gemini', 'openai'];
+
+const AI_PROVIDER_INFO: Record<
+  AiProvider,
+  { name: string; company: string; keysUrl: string; keyPlaceholder: string; modelPlaceholder: string }
+> = {
+  claude: {
+    name: 'Claude',
+    company: 'Anthropic',
+    keysUrl: 'https://console.anthropic.com/settings/keys',
+    keyPlaceholder: 'sk-ant-...',
+    modelPlaceholder: 'claude-opus-5-5',
+  },
+  gemini: {
+    name: 'Gemini',
+    company: 'Google',
+    keysUrl: 'https://aistudio.google.com/apikey',
+    keyPlaceholder: 'AIza...',
+    modelPlaceholder: 'gemini-pro-latest',
+  },
+  openai: {
+    name: 'ChatGPT',
+    company: 'OpenAI',
+    keysUrl: 'https://platform.openai.com/api-keys',
+    keyPlaceholder: 'sk-...',
+    modelPlaceholder: 'تلقائي (أحدث GPT)',
+  },
+};
+
 const getMosquePhotos = (m?: Partial<Mosque> | null): string[] =>
   m ? ([m.main_photo_url, ...(m.additional_photos || [])].filter(Boolean) as string[]) : [];
 
@@ -53,7 +83,7 @@ const ANNOUNCEMENT_TYPES = [
   'إعلان آخر',
 ];
 
-type AdminTab = 'sheikhs' | 'mosques' | 'locations' | 'identity' | 'templates' | 'announcements' | 'system';
+type AdminTab = 'sheikhs' | 'mosques' | 'locations' | 'identity' | 'announcements' | 'system' | 'ai';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -104,6 +134,7 @@ export function AdminDashboard({
   // Password change state
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [newSitePassword, setNewSitePassword] = useState('');
 
   // True while a sheikh/mosque photo gallery is uploading (blocks saving)
   const [photosUploading, setPhotosUploading] = useState(false);
@@ -111,15 +142,26 @@ export function AdminDashboard({
   // Past announcements used as style references
   const [styleReferences, setStyleReferences] = useState<StyleReference[]>([]);
   const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
+  const [aiDrafts, setAiDrafts] = useState<Record<AiProvider, { key: string; model: string }>>({
+    claude: { key: '', model: '' },
+    gemini: { key: '', model: '' },
+    openai: { key: '', model: '' },
+  });
+  const [aiSaving, setAiSaving] = useState<AiProvider | null>(null);
   const [referenceUploads, setReferenceUploads] = useState(0);
   const [referenceType, setReferenceType] = useState('');
+  const [refreshingArchive, setRefreshingArchive] = useState(false);
 
   // Fetch initial admin data
   useEffect(() => {
     loadAnnouncements();
     loadSystemStatus();
     loadStyleReferences();
-    api.getAiStatus().then((r) => setAiEnabled(r.enabled)).catch(() => setAiEnabled(false));
+    api
+      .getAiSettings()
+      .then(applyAiSettings)
+      .catch(() => setAiEnabled(false));
   }, []);
 
   const showMsg = (text: string, type: 'success' | 'error' = 'success') => {
@@ -300,6 +342,13 @@ export function AdminDashboard({
     }
   };
 
+  // The category picker filters the grid and tags new uploads
+  const visibleReferences = referenceType
+    ? styleReferences.filter((r) => r.announcement_type === referenceType)
+    : styleReferences;
+  const unanalyzedCount = visibleReferences.filter((r) => r.status === 'pending' || r.status === 'error').length;
+  const analyzingCount = styleReferences.filter((r) => r.status === 'analyzing').length;
+
   // ==========================================
   // Style references (old announcements) Helpers
   // ==========================================
@@ -317,7 +366,7 @@ export function AdminDashboard({
       const { reference } = await api.analyzeStyleReference(id);
       setStyleReferences((prev) => prev.map((r) => (r.id === id ? reference : r)));
       setTemplates(await api.getTemplates());
-      showMsg(`تم استخراج أسلوب «${reference.style?.name}» وإضافته للقوالب`);
+      showMsg(`تم استخراج أسلوب «${reference.style?.name}» وسيُطبَّق على الإعلانات الجديدة`);
     } catch (err: any) {
       setStyleReferences((prev) => prev.map((r) => (r.id === id ? { ...r, status: 'error', error: err.message } : r)));
       showMsg(err.message, 'error');
@@ -347,12 +396,81 @@ export function AdminDashboard({
     }
   };
 
+  // Reloads both the old announcements and the designer's saved ones
+  const handleRefreshArchive = async () => {
+    setRefreshingArchive(true);
+    await Promise.all([loadStyleReferences(), loadAnnouncements()]);
+    setRefreshingArchive(false);
+    showMsg('تم تحديث الأرشيف');
+  };
+
+  const promptForAiKey = () => {
+    showMsg('أضف مفتاح أداة ذكاء اصطناعي أولاً، ثم ارجع للأرشيف واضغط «تحليل»', 'error');
+    setActiveTab('ai');
+  };
+
+  // Analyze the shown (filtered) references that have no style yet, one at a time
+  const handleAnalyzeAll = async () => {
+    if (!aiEnabled) return promptForAiKey();
+    const queue = visibleReferences.filter((r) => r.status === 'pending' || r.status === 'error');
+    for (const ref of queue) await analyzeReference(ref.id);
+  };
+
   const handleDeleteReference = async (id: number) => {
-    if (!confirm('حذف هذا الإعلان من الأرشيف المرجعي؟ سيُحذف القالب المستخرج منه أيضاً.')) return;
+    if (!confirm('حذف هذا الإعلان من الأرشيف المرجعي؟ سيُحذف الأسلوب المستخرج منه أيضاً.')) return;
     await api.deleteStyleReference(id);
     setStyleReferences((prev) => prev.filter((r) => r.id !== id));
     setTemplates((prev) => prev.filter((t) => t.source_reference_id !== id));
     showMsg('تم حذف الإعلان المرجعي');
+  };
+
+  // AI provider keys (each verified on the server before it is saved)
+  const applyAiSettings = (r: AiSettings) => {
+    setAiSettings(r);
+    setAiEnabled(r.active !== null);
+    setAiDrafts((prev) => {
+      const next = { ...prev };
+      for (const p of AI_PROVIDER_ORDER) next[p] = { key: '', model: r.providers[p].model };
+      return next;
+    });
+  };
+
+  const handleSaveAiProvider = async (provider: AiProvider) => {
+    setAiSaving(provider);
+    try {
+      applyAiSettings(await api.saveAiProvider(provider, aiDrafts[provider].key, aiDrafts[provider].model));
+      showMsg(`تم التحقق من مفتاح ${AI_PROVIDER_INFO[provider].name} وحفظه`);
+    } catch (err: any) {
+      showMsg(err.message, 'error');
+    } finally {
+      setAiSaving(null);
+    }
+  };
+
+  const handleRemoveAiProvider = async (provider: AiProvider) => {
+    if (!confirm(`حذف مفتاح ${AI_PROVIDER_INFO[provider].name}؟`)) return;
+    applyAiSettings(await api.removeAiProvider(provider));
+    showMsg('تم حذف المفتاح');
+  };
+
+  const handleSetActiveAiProvider = async (provider: AiProvider) => {
+    try {
+      applyAiSettings(await api.setActiveAiProvider(provider));
+      showMsg(`صار ${AI_PROVIDER_INFO[provider].name} أداة التحليل المستخدمة`);
+    } catch (err: any) {
+      showMsg(err.message, 'error');
+    }
+  };
+
+  const handleChangeSitePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await api.changeSitePassword(newSitePassword);
+      setNewSitePassword('');
+      showMsg('تم تغيير كلمة مرور دخول الموقع');
+    } catch (err: any) {
+      showMsg(err.message, 'error');
+    }
   };
 
   // Password change
@@ -373,9 +491,9 @@ export function AdminDashboard({
     { id: 'mosques', label: '2. إدارة المساجد', shortLabel: 'المساجد', icon: Building2, count: mosques.length },
     { id: 'locations', label: '3. الولايات والمحليات', shortLabel: 'المواقع', icon: Map, count: states.length },
     { id: 'identity', label: '4. الهوية البصرية الرسمية', shortLabel: 'الهوية', icon: Shield },
-    { id: 'templates', label: `5. قوالب التصميم (${templates.length})`, shortLabel: 'القوالب', icon: Layers },
-    { id: 'announcements', label: '6. أرشيف الإعلانات المحفوظة', shortLabel: 'الأرشيف', icon: Archive, count: announcements.length },
-    { id: 'system', label: '7. قاعدة البيانات والنسخ الاحتياطي', shortLabel: 'النظام', icon: Database },
+    { id: 'announcements', label: '5. أرشيف الإعلانات', shortLabel: 'الأرشيف', icon: Archive, count: styleReferences.length + announcements.length },
+    { id: 'system', label: '6. قاعدة البيانات والنسخ الاحتياطي', shortLabel: 'النظام', icon: Database },
+    { id: 'ai', label: '7. الذكاء الاصطناعي', shortLabel: 'الذكاء الاصطناعي', icon: Sparkles },
   ];
 
   return (
@@ -397,17 +515,6 @@ export function AdminDashboard({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          {systemStatus?.database?.isPostgresActive ? (
-            <span className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-950/70 text-emerald-300 border border-emerald-500/30">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              PostgreSQL متصل
-            </span>
-          ) : (
-            <span className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-brand-950/70 text-brand-300 border border-brand-500/30">
-              <span className="w-2 h-2 rounded-full bg-brand-400" />
-              التخزين المحلي الآمن نشط
-            </span>
-          )}
 
           <button
             onClick={onLogout}
@@ -862,63 +969,6 @@ export function AdminDashboard({
           )}
 
           {/* ========================================================= */}
-          {/* 5. TEMPLATES MANAGEMENT */}
-          {/* ========================================================= */}
-          {activeTab === 'templates' && (
-            <div className="space-y-6">
-              <div className="pb-4 border-b border-slate-800">
-                <h2 className="text-lg sm:text-xl font-black text-brand-200 font-display">
-                  إدارة قوالب التصميم الثمانية
-                </h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  معاينة الأنماط وتفعيلها أو إيقافها للنظام
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {templates.map((tpl) => (
-                  <div
-                    key={tpl.id}
-                    className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="font-bold text-brand-200 font-cairo text-sm">{tpl.name}</div>
-                      <span
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                          tpl.is_active
-                            ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
-                            : 'bg-red-950 text-red-300 border border-red-500/30'
-                        }`}
-                      >
-                        {tpl.is_active ? 'نشط ومتاح' : 'معطل'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 leading-relaxed font-tajawal">
-                      {tpl.description}
-                    </p>
-                    <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-3 text-xs">
-                      <span className="text-slate-500 truncate">معرف القالب: {tpl.id}</span>
-                      <button
-                        onClick={async () => {
-                          const updated = !tpl.is_active;
-                          await api.updateTemplate(tpl.id, { is_active: updated });
-                          setTemplates((prev) =>
-                            prev.map((t) => (t.id === tpl.id ? { ...t, is_active: updated } : t))
-                          );
-                          showMsg(`تم ${updated ? 'تفعيل' : 'تعطيل'} القالب بنجاح`);
-                        }}
-                        className="text-brand-400 hover:underline min-h-9 px-2 -mx-2"
-                      >
-                        {tpl.is_active ? 'تعطيل القالب' : 'تفعيل القالب'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================= */}
           {/* 6. SAVED ANNOUNCEMENTS ARCHIVE */}
           {/* ========================================================= */}
           {activeTab === 'announcements' && (
@@ -933,10 +983,11 @@ export function AdminDashboard({
                   </p>
                 </div>
                 <button
-                  onClick={loadAnnouncements}
-                  className="min-h-10 py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 flex items-center justify-center gap-1.5 self-start sm:self-auto"
+                  onClick={handleRefreshArchive}
+                  disabled={refreshingArchive}
+                  className="min-h-10 py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 flex items-center justify-center gap-1.5 self-start sm:self-auto disabled:opacity-60"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingArchive ? 'animate-spin' : ''}`} />
                   تحديث
                 </button>
               </div>
@@ -950,7 +1001,7 @@ export function AdminDashboard({
                   </h3>
                   <p className="text-xs text-slate-400 mt-1 leading-relaxed">
                     ارفع تصاميم إعلاناتكم السابقة، وسيحلل الذكاء الاصطناعي أسلوب كل تصميم (الألوان، الخطوط، الزخارف) ويحوّله إلى
-                    قالب جديد يُختار تلقائياً للإعلانات المشابهة في النوع.
+                    أسلوب يُطبَّق تلقائياً على الإعلانات الجديدة من نفس النوع.
                   </p>
                 </div>
 
@@ -958,8 +1009,11 @@ export function AdminDashboard({
                   <div className="flex items-start gap-2 p-3 rounded-xl bg-brand-950/40 border border-brand-500/30 text-brand-200 text-xs leading-relaxed">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-brand-400" />
                     <span>
-                      التحليل الذكي غير مفعّل بعد: يحتاج مفتاح <span dir="ltr" className="font-mono">ANTHROPIC_API_KEY</span> في ملف
-                      <span dir="ltr" className="font-mono"> .env </span>على السيرفر. يمكنك رفع الإعلانات الآن، وتحليلها لاحقاً بزر «تحليل».
+                      التحليل الذكي غير مفعّل بعد: أضف مفتاح أداة ذكاء اصطناعي من{' '}
+                      <button type="button" onClick={() => setActiveTab('ai')} className="font-bold underline">
+                        قسم «الذكاء الاصطناعي»
+                      </button>
+                      . يمكنك رفع الإعلانات الآن، وتحليلها لاحقاً بزر «تحليل».
                     </span>
                   </div>
                 )}
@@ -969,12 +1023,12 @@ export function AdminDashboard({
                     value={referenceType}
                     onChange={(e) => setReferenceType(e.target.value)}
                     className="sm:w-56 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white"
-                    aria-label="نوع الإعلانات المرفوعة"
+                    aria-label="تصنيف الإعلانات (للعرض والرفع)"
                   >
-                    <option value="">نوع الإعلانات (اختياري)</option>
+                    <option value="">كل التصنيفات ({styleReferences.length})</option>
                     {ANNOUNCEMENT_TYPES.map((t) => (
                       <option key={t} value={t}>
-                        {t}
+                        {t} ({styleReferences.filter((r) => r.announcement_type === t).length})
                       </option>
                     ))}
                   </select>
@@ -1011,9 +1065,41 @@ export function AdminDashboard({
                   </label>
                 </div>
 
-                {styleReferences.length > 0 && (
+                {unanalyzedCount > 0 && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <span className="text-xs text-slate-400">
+                      {unanalyzedCount} إعلان {referenceType ? `في «${referenceType}» ` : ''}لم يُحلَّل أسلوبه بعد
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleAnalyzeAll}
+                      disabled={analyzingCount > 0}
+                      className="min-h-10 px-4 rounded-xl bg-brand-500 hover:bg-brand-400 text-on-brand text-xs font-bold inline-flex items-center justify-center gap-1.5 disabled:opacity-60"
+                    >
+                      {analyzingCount > 0 ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          جاري التحليل...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          تحليل الكل ({unanalyzedCount})
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {referenceType && visibleReferences.length === 0 && (
+                  <div className="text-center py-8 text-xs text-slate-500">
+                    لا توجد إعلانات مؤرشفة في تصنيف «{referenceType}». الإعلانات التي ترفعها الآن ستُضاف لهذا التصنيف.
+                  </div>
+                )}
+
+                {visibleReferences.length > 0 && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {styleReferences.map((ref) => (
+                    {visibleReferences.map((ref) => (
                       <div key={ref.id} className="rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex flex-col">
                         <div className="relative aspect-[4/5] bg-slate-800">
                           <img src={ref.image_url} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -1031,6 +1117,7 @@ export function AdminDashboard({
                           {ref.status === 'done' && ref.style ? (
                             <>
                               <div className="font-bold text-slate-100 text-xs">{ref.style.name}</div>
+                              {ref.analyzed_by && <div className="text-slate-500">حلّله {ref.analyzed_by}</div>}
                               <div className="flex gap-1" aria-label="ألوان الأسلوب">
                                 {[ref.style.palette.background_middle, ref.style.palette.accent, ref.style.palette.title, ref.style.palette.text].map(
                                   (c, i) => (
@@ -1049,9 +1136,9 @@ export function AdminDashboard({
                           ) : (
                             <div className="text-slate-500">بانتظار التحليل</div>
                           )}
-                          {aiEnabled && ref.status !== 'analyzing' && (
+                          {ref.status !== 'analyzing' && (
                             <button
-                              onClick={() => analyzeReference(ref.id)}
+                              onClick={() => (aiEnabled ? analyzeReference(ref.id) : promptForAiKey())}
                               className="mt-auto min-h-8 w-full rounded-lg bg-brand-500/15 hover:bg-brand-500/25 text-brand-300 font-bold"
                             >
                               {ref.status === 'done' ? 'إعادة التحليل' : 'تحليل'}
@@ -1081,9 +1168,6 @@ export function AdminDashboard({
                         <div className="font-bold text-white font-cairo text-sm">{item.title}</div>
                         <div className="text-brand-300 mt-0.5">
                           {item.type} | {item.date} ({item.dayName}) | {item.timeType}
-                        </div>
-                        <div className="text-slate-400 text-[11px] mt-0.5">
-                          القالب: {item.templateId || 'الذهبي'}
                         </div>
                       </div>
 
@@ -1116,6 +1200,164 @@ export function AdminDashboard({
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* 8. AI TOOLS: provider keys and the active analysis tool */}
+          {/* ========================================================= */}
+          {activeTab === 'ai' && (
+            <div className="space-y-6">
+              <div className="pb-4 border-b border-slate-800">
+                <h2 className="text-lg sm:text-xl font-extrabold text-brand-200 font-display">أدوات الذكاء الاصطناعي</h2>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  أضف مفتاح أداة واحدة على الأقل، واختر الأداة التي تحلل أسلوب الإعلانات القديمة في قسم الأرشيف.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {AI_PROVIDER_ORDER.map((provider) => {
+                  const info = AI_PROVIDER_INFO[provider];
+                  const status = aiSettings?.providers[provider];
+                  const isActive = aiSettings?.active === provider;
+                  const draft = aiDrafts[provider];
+                  return (
+                    <div
+                      key={provider}
+                      className={`p-4 sm:p-5 rounded-2xl bg-slate-900 border space-y-3 ${
+                        isActive ? 'border-brand-400 ring-1 ring-brand-400/30' : 'border-slate-800'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-100 font-display flex items-center gap-2">
+                            {info.name}
+                            <span className="text-[11px] font-normal text-slate-500">({info.company})</span>
+                            {isActive && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-500 text-on-brand font-bold">
+                                الأداة المستخدمة
+                              </span>
+                            )}
+                          </h3>
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            احصل على المفتاح من{' '}
+                            <a
+                              href={info.keysUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              dir="ltr"
+                              className="text-brand-400 hover:underline inline-flex items-center gap-0.5"
+                            >
+                              {new URL(info.keysUrl).host}
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </p>
+                        </div>
+                        {status?.configured && !isActive && (
+                          <button
+                            type="button"
+                            onClick={() => handleSetActiveAiProvider(provider)}
+                            className="min-h-9 px-3 rounded-xl border border-brand-500/40 bg-brand-500/10 hover:bg-brand-500/20 text-brand-300 text-xs font-bold"
+                          >
+                            استخدامها للتحليل
+                          </button>
+                        )}
+                      </div>
+
+                      <div
+                        className={`flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl border text-xs ${
+                          status?.configured
+                            ? 'bg-emerald-950/50 border-emerald-500/30 text-emerald-300'
+                            : 'bg-slate-950 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${status?.configured ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                          {status?.configured ? 'المفتاح محفوظ' : 'لا يوجد مفتاح'}
+                          {status?.masked && (
+                            <span dir="ltr" className="font-mono text-slate-400">
+                              {status.masked}
+                            </span>
+                          )}
+                          {status?.configured && status.model && (
+                            <span dir="ltr" className="font-mono text-slate-500">
+                              · {status.model}
+                            </span>
+                          )}
+                          {status?.source === 'env' && <span className="text-slate-500">(من ملف ‎.env)</span>}
+                        </span>
+                        {status?.source === 'admin' && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAiProvider(provider)}
+                            className="text-red-400 hover:underline font-bold"
+                          >
+                            حذف المفتاح
+                          </button>
+                        )}
+                      </div>
+
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          handleSaveAiProvider(provider);
+                        }}
+                        className="grid grid-cols-1 sm:grid-cols-[1fr_12rem_auto] gap-2"
+                      >
+                        <input
+                          type="password"
+                          value={draft.key}
+                          onChange={(e) =>
+                            setAiDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], key: e.target.value } }))
+                          }
+                          placeholder={status?.configured ? 'لصق مفتاح جديد للاستبدال' : info.keyPlaceholder}
+                          aria-label={`مفتاح ${info.name}`}
+                          dir="ltr"
+                          autoComplete="off"
+                          spellCheck={false}
+                          className="min-w-0 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white font-mono"
+                        />
+                        <input
+                          type="text"
+                          value={draft.model}
+                          onChange={(e) =>
+                            setAiDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], model: e.target.value } }))
+                          }
+                          placeholder={info.modelPlaceholder}
+                          aria-label={`نموذج ${info.name}`}
+                          title="اسم النموذج (اختياري)"
+                          dir="ltr"
+                          autoComplete="off"
+                          spellCheck={false}
+                          className="min-w-0 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white font-mono"
+                        />
+                        <button
+                          type="submit"
+                          disabled={aiSaving !== null || (!draft.key.trim() && !status?.configured)}
+                          className="min-h-11 py-2 px-4 rounded-xl bg-brand-500 hover:bg-brand-400 text-on-brand text-xs font-bold inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+                        >
+                          {aiSaving === provider ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              جاري التحقق...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-4 h-4" />
+                              تحقق واحفظ
+                            </>
+                          )}
+                        </button>
+                      </form>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                تُحفظ المفاتيح على السيرفر في مكان غير متاح للعامة ولا تُعرض كاملة بعد حفظها. اسم النموذج اختياري: اتركه كما هو
+                لاستخدام النموذج الافتراضي، أو اكتب اسم نموذج محدد.
+              </p>
             </div>
           )}
 
@@ -1175,6 +1417,35 @@ export function AdminDashboard({
                     تنزيل نسخة احتياطية كاملة (JSON)
                   </button>
                 </div>
+              </div>
+
+              {/* Visitor password for the whole site */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3 max-w-md">
+                <h3 className="text-sm font-bold text-brand-300 flex items-center gap-2 font-display">
+                  <KeyRound className="w-4 h-4" />
+                  كلمة مرور دخول الموقع (للزوار):
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  يطلبها الموقع من كل زائر قبل الدخول. تغييرها يُخرج كل من دخل بالكلمة القديمة.
+                </p>
+                <form onSubmit={handleChangeSitePassword} className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="password"
+                    value={newSitePassword}
+                    onChange={(e) => setNewSitePassword(e.target.value)}
+                    placeholder="كلمة المرور الجديدة"
+                    autoComplete="new-password"
+                    minLength={4}
+                    required
+                    className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white"
+                  />
+                  <button
+                    type="submit"
+                    className="min-h-11 py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700"
+                  >
+                    تغيير
+                  </button>
+                </form>
               </div>
 
               {/* Admin Password Change Card */}

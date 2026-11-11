@@ -1,6 +1,7 @@
 import pg from 'pg';
 import fs from 'fs';
 import path from 'path';
+import { dataFile } from './dataDir.ts';
 
 const { Pool } = pg;
 
@@ -63,7 +64,7 @@ if (process.env.DATABASE_URL || (process.env.PGPASSWORD && process.env.PGHOST)) 
 }
 
 // Local Persistent Store fallback
-const STORE_FILE = path.join(process.cwd(), 'uploads', 'local_database_store.json');
+const STORE_FILE = dataFile('local_database_store.json');
 
 export interface AppStore {
   states: any[];

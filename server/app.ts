@@ -13,7 +13,17 @@ import {
   updateAdminProfile,
   AuthenticatedRequest,
 } from './auth.ts';
+import { changeSitePassword, hasSiteAccess, isSiteProtected, requireSiteAccess, siteLogin } from './siteAccess.ts';
 import { analyzeReferenceStyle, isAiEnabled, StyleAnalysisError } from './ai/styleAnalysis.ts';
+import { AI_PROVIDERS, AiProvider, AiProviderError, DEFAULT_MODELS, PROVIDERS } from './ai/providers.ts';
+import {
+  getActiveProvider,
+  getProviderConfig,
+  maskApiKey,
+  removeProvider,
+  saveProvider,
+  setActiveProvider,
+} from './settings.ts';
 
 export const app = express();
 
@@ -21,6 +31,16 @@ export const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Behind nginx: trust its X-Forwarded-For so req.ip is the visitor's address
+app.set('trust proxy', 1);
+
+// Site password: the visitor's gate, checked before any API route below
+app.get('/api/site/status', (req: Request, res: Response) => {
+  return res.json({ protected: isSiteProtected(), unlocked: hasSiteAccess(req) });
+});
+app.post('/api/site/login', siteLogin);
+app.use('/api', requireSiteAccess);
 
 // Serve uploaded files statically
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
@@ -92,6 +112,9 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
 app.get('/api/auth/me', requireAdminAuth, (req: AuthenticatedRequest, res: Response) => {
   return res.json({ success: true, admin: getAdminPublicInfo() });
 });
+
+// Change the visitor password for the whole site (admin only)
+app.post('/api/site/password', requireAdminAuth, changeSitePassword);
 
 // Change Password
 app.post('/api/auth/change-password', requireAdminAuth, (req: AuthenticatedRequest, res: Response) => {
@@ -374,6 +397,61 @@ app.get('/api/ai/status', (req: Request, res: Response) => {
   return res.json({ enabled: isAiEnabled() });
 });
 
+// AI provider keys, managed from the admin panel (stored in data/settings.json, never returned in full)
+function aiSettingsStatus() {
+  const providers = Object.fromEntries(
+    AI_PROVIDERS.map((p) => {
+      const config = getProviderConfig(p);
+      return [
+        p,
+        config
+          ? { configured: true, source: config.source, masked: maskApiKey(config.key), model: config.model }
+          : { configured: false, source: null, masked: null, model: DEFAULT_MODELS[p] },
+      ];
+    })
+  );
+  return { active: getActiveProvider(), providers };
+}
+
+const isProvider = (p: string): p is AiProvider => (AI_PROVIDERS as string[]).includes(p);
+
+app.get('/api/settings/ai', requireAdminAuth, (req: AuthenticatedRequest, res: Response) => {
+  return res.json(aiSettingsStatus());
+});
+
+app.put('/api/settings/ai/active', requireAdminAuth, (req: AuthenticatedRequest, res: Response) => {
+  const provider = req.body?.provider;
+  if (!isProvider(provider) || !getProviderConfig(provider)) {
+    return res.status(400).json({ error: 'أضف مفتاح هذه الأداة أولاً' });
+  }
+  setActiveProvider(provider);
+  return res.json(aiSettingsStatus());
+});
+
+app.put('/api/settings/ai/:provider', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const { provider } = req.params;
+  if (!isProvider(provider)) return res.status(404).json({ error: 'أداة غير معروفة' });
+  const existing = getProviderConfig(provider);
+  const key = typeof req.body?.api_key === 'string' && req.body.api_key.trim() ? req.body.api_key.trim() : existing?.key;
+  const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
+  if (!key) return res.status(400).json({ error: 'أدخل المفتاح أولاً' });
+  try {
+    const model = await PROVIDERS[provider].verify(key, requestedModel || DEFAULT_MODELS[provider]);
+    saveProvider(provider, key, model);
+    return res.json(aiSettingsStatus());
+  } catch (err: any) {
+    const message = err instanceof AiProviderError ? err.message : `تعذر التحقق من المفتاح: ${err.message}`;
+    return res.status(400).json({ error: message });
+  }
+});
+
+app.delete('/api/settings/ai/:provider', requireAdminAuth, (req: AuthenticatedRequest, res: Response) => {
+  const { provider } = req.params;
+  if (!isProvider(provider)) return res.status(404).json({ error: 'أداة غير معروفة' });
+  removeProvider(provider);
+  return res.json(aiSettingsStatus());
+});
+
 app.get('/api/style-references', requireAdminAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     return res.json(await db.getStyleReferences());
@@ -412,14 +490,14 @@ app.post('/api/style-references/:id/analyze', requireAdminAuth, async (req: Auth
   try {
     await db.updateStyleReference(id, { status: 'analyzing', error: '' });
     const archiveStyles = refs.filter((r) => r.id !== id && r.status === 'done' && r.style).map((r) => r.style);
-    const style = await analyzeReferenceStyle({
+    const { style, provider } = await analyzeReferenceStyle({
       imageUrl: reference.image_url,
       announcementType: reference.announcement_type,
       notes: reference.notes,
       archiveStyles,
     });
     const template = await db.upsertArchiveTemplate(id, style);
-    const updated = await db.updateStyleReference(id, { status: 'done', style, error: '' });
+    const updated = await db.updateStyleReference(id, { status: 'done', style, analyzed_by: provider, error: '' });
     return res.json({ reference: updated, template });
   } catch (err: any) {
     const message = err instanceof StyleAnalysisError ? err.message : `تعذر تحليل التصميم: ${err.message}`;

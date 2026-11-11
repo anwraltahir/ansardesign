@@ -26,8 +26,8 @@ if command -v pg_dump &> /dev/null; then
     echo "✅ Database dump completed."
 else
     echo "⚠️ pg_dump not found or PostgreSQL running remotely. Backing up local store file..."
-    if [ -f "$PROJECT_DIR/uploads/local_database_store.json" ]; then
-        cp "$PROJECT_DIR/uploads/local_database_store.json" "$BACKUP_DIR/local_store_${TIMESTAMP}.json"
+    if [ -f "$PROJECT_DIR/data/local_database_store.json" ]; then
+        cp "$PROJECT_DIR/data/local_database_store.json" "$BACKUP_DIR/local_store_${TIMESTAMP}.json"
     fi
 fi
 

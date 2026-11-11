@@ -17,6 +17,7 @@ import {
 } from './IslamicDecorations';
 import { BrandEmblem } from '../Brand';
 import { pickSheikhPhoto } from '../../utils/sheikh';
+import { DEFAULT_POSTER_STYLE } from '../../utils/templates';
 import { formatGregorianArabic, toHijriDate } from '../../utils/hijri';
 import { Calendar, Clock, MapPin, Radio, Users, BookOpen } from 'lucide-react';
 
@@ -29,7 +30,7 @@ interface PosterCanvasProps {
   locality?: Locality | null;
   identity?: VisualIdentity | null;
   aspectRatio?: '4:5' | '1:1' | '9:16' | 'print';
-  // Template object; archive templates carry an AI-extracted style
+  // Archive template carrying an AI-extracted style; the brand default is used without one
   template?: DesignTemplate;
 }
 
@@ -40,9 +41,9 @@ const TITLE_FONTS: Record<PosterStyle['title_font'], string> = {
   tajawal: 'font-tajawal',
 };
 
-// Maps an archive style onto the poster: its own variables plus the palette tokens the layout already
-// uses (amber for accents/titles, slate for body text), so every element follows the extracted colors
-function archiveStyleVars(style: PosterStyle): React.CSSProperties {
+// Maps a style onto the poster: its own variables plus the palette tokens the layout already
+// uses (amber for accents/titles, slate for body text), so every element follows the style's colors
+function styleVars(style: PosterStyle): React.CSSProperties {
   const p = style.palette;
   return {
     background: `linear-gradient(to bottom, ${p.background_top}, ${p.background_middle}, ${p.background_bottom})`,
@@ -79,7 +80,6 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
     },
     ref
   ) => {
-    const templateId = formData.templateId || 'golden-heritage';
     const gregorianFormatted = formatGregorianArabic(formData.date);
     const hijriFormatted = formData.hijriDate || toHijriDate(formData.date);
 
@@ -115,132 +115,42 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
       state?.name,
     ].filter(Boolean);
 
-    const archiveStyle = template?.style;
+    // Every poster is drawn from a style: one extracted from the group's archive, or the brand default
+    const style = template?.style ?? DEFAULT_POSTER_STYLE;
 
-    // Template specific styling rules
-    const getTemplateTheme = () => {
-      if (archiveStyle) {
-        // Colors come from CSS variables set on the root (see archiveStyleVars)
-        const card =
-          archiveStyle.card_style === 'outlined'
-            ? 'bg-transparent border-[var(--poster-card-border)]'
-            : 'bg-[var(--poster-card)] border-[var(--poster-card-border)]';
-        return {
-          bg: '',
-          border: 'border-[var(--poster-accent)]/50',
-          accent: 'text-[var(--poster-accent)]',
-          badgeBg: `${card} text-[var(--poster-title)]`,
-          cardBg: card,
-          goldText: 'text-[var(--poster-accent)]',
-          divider: 'border-[var(--poster-card-border)]',
-        };
-      }
-      switch (templateId) {
-        case 'official-blue':
-          return {
-            bg: 'bg-gradient-to-b from-[#071329] via-[#0c224b] to-[#050e1f]',
-            border: 'border-sky-400/40',
-            accent: 'text-sky-300',
-            badgeBg: 'bg-sky-950/80 border-sky-400/50 text-sky-200',
-            cardBg: 'bg-slate-900/70 border-sky-500/20',
-            goldText: 'text-amber-300',
-            divider: 'border-sky-400/30',
-          };
-        case 'emerald-turquoise':
-          return {
-            bg: 'bg-gradient-to-b from-[#022c22] via-[#064e3b] to-[#011a14]',
-            border: 'border-emerald-400/50',
-            accent: 'text-emerald-300',
-            badgeBg: 'bg-emerald-950/90 border-emerald-400/60 text-emerald-200',
-            cardBg: 'bg-emerald-950/60 border-emerald-500/30',
-            goldText: 'text-amber-300',
-            divider: 'border-emerald-400/30',
-          };
-        case 'mosque-architecture':
-          return {
-            bg: 'bg-gradient-to-b from-[#0f172a] via-[#1e293b] to-[#090d16]',
-            border: 'border-amber-400/40',
-            accent: 'text-amber-300',
-            badgeBg: 'bg-amber-950/80 border-amber-500/50 text-amber-200',
-            cardBg: 'bg-slate-900/80 border-amber-500/20',
-            goldText: 'text-amber-400',
-            divider: 'border-amber-500/30',
-          };
-        case 'classic-islamic':
-          return {
-            bg: 'bg-gradient-to-b from-[#1c130b] via-[#2d1e11] to-[#120b06]',
-            border: 'border-amber-500/60',
-            accent: 'text-amber-300',
-            badgeBg: 'bg-amber-950/90 border-amber-600/70 text-amber-100',
-            cardBg: 'bg-amber-950/40 border-amber-600/30',
-            goldText: 'text-amber-400',
-            divider: 'border-amber-600/40',
-          };
-        case 'sheikh-portrait':
-          return {
-            bg: 'bg-gradient-to-b from-[#080d1a] via-[#0f172a] to-[#04070d]',
-            border: 'border-amber-400/50',
-            accent: 'text-amber-300',
-            badgeBg: 'bg-slate-900/90 border-amber-400/50 text-amber-200',
-            cardBg: 'bg-slate-900/85 border-amber-400/25',
-            goldText: 'text-amber-400',
-            divider: 'border-amber-400/30',
-          };
-        case 'minimalist-clean':
-          return {
-            bg: 'bg-gradient-to-b from-[#090d16] via-[#0f172a] to-[#060910]',
-            border: 'border-slate-700',
-            accent: 'text-slate-300',
-            badgeBg: 'bg-slate-800/90 border-slate-600 text-slate-100',
-            cardBg: 'bg-slate-900/50 border-slate-700/50',
-            goldText: 'text-amber-300',
-            divider: 'border-slate-800',
-          };
-        case 'modern-geometric':
-          return {
-            bg: 'bg-gradient-to-b from-[#0b1329] via-[#0f1f42] to-[#060a17]',
-            border: 'border-teal-400/40',
-            accent: 'text-teal-300',
-            badgeBg: 'bg-teal-950/90 border-teal-400/50 text-teal-200',
-            cardBg: 'bg-slate-900/75 border-teal-500/20',
-            goldText: 'text-amber-300',
-            divider: 'border-teal-400/30',
-          };
-        case 'golden-heritage':
-        default:
-          return {
-            bg: 'bg-gradient-to-b from-[#081d16] via-[#0c2a20] to-[#040e0b]',
-            border: 'border-amber-400/60',
-            accent: 'text-amber-300',
-            badgeBg: 'bg-emerald-950/90 border-amber-400/60 text-amber-200',
-            cardBg: 'bg-emerald-950/60 border-amber-500/30',
-            goldText: 'text-amber-300',
-            divider: 'border-amber-400/40',
-          };
-      }
+    // Colors come from CSS variables set on the root (see styleVars)
+    const card =
+      style.card_style === 'outlined'
+        ? 'bg-transparent border-[var(--poster-card-border)]'
+        : 'bg-[var(--poster-card)] border-[var(--poster-card-border)]';
+    const theme = {
+      border: 'border-[var(--poster-accent)]/50',
+      accent: 'text-[var(--poster-accent)]',
+      badgeBg: `${card} text-[var(--poster-title)]`,
+      cardBg: card,
+      goldText: 'text-[var(--poster-accent)]',
+      divider: 'border-[var(--poster-card-border)]',
     };
-
-    const theme = getTemplateTheme();
     const sheikhPhoto = pickSheikhPhoto(primarySheikh, formData.sheikhPhotoUrl);
 
     return (
       <div
         ref={ref}
         id="ansar-poster-canvas"
-        style={archiveStyle ? { ...containerStyle, ...archiveStyleVars(archiveStyle) } : containerStyle}
+        style={{ ...containerStyle, ...styleVars(style) }}
         dir="rtl"
-        className={`theme-reset relative flex flex-col justify-between overflow-hidden text-slate-100 font-sans select-none ${theme.bg} p-12`}
+        className="theme-reset relative flex flex-col justify-between overflow-hidden text-slate-100 font-sans select-none p-12"
       >
         {/* Ambient Geometric Islamic Background Pattern */}
-        {(!archiveStyle || archiveStyle.ornament === 'islamic-stars') && (
+        {style.ornament === 'islamic-stars' && (
           <div className="absolute inset-0 bg-islamic-stars opacity-40 pointer-events-none" />
         )}
-        {archiveStyle?.ornament === 'geometric-lattice' && (
+        {style.ornament === 'geometric-lattice' && (
           <div className="absolute inset-0 bg-islamic-geo opacity-[0.08] pointer-events-none" />
         )}
 
         {/* Architectural Mosque Skyline in background */}
-        {(!archiveStyle || archiveStyle.ornament === 'mosque-skyline') && (
+        {style.ornament === 'mosque-skyline' && (
           <div className="absolute bottom-16 inset-x-0 opacity-15 pointer-events-none flex justify-center">
             <MosqueSkyline className="w-full h-40 text-amber-400" />
           </div>
@@ -255,7 +165,7 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
         />
 
         {/* Four Ornamental Corners */}
-        {(!archiveStyle || archiveStyle.corner_ornaments) && (
+        {style.corner_ornaments && (
           <>
             <div className="absolute top-6 right-6 pointer-events-none z-20">
               <CornerOrnament className="w-20 h-20 text-amber-400" />
@@ -333,7 +243,7 @@ export const PosterCanvas = forwardRef<HTMLDivElement, PosterCanvasProps>(
           </div>
 
           {/* Main Title / Topic */}
-          <h1 className={`text-4xl md:text-5xl font-black ${archiveStyle ? TITLE_FONTS[archiveStyle.title_font] : 'font-cairo'} text-amber-100 leading-tight max-w-4xl drop-shadow-md px-4`}>
+          <h1 className={`text-4xl md:text-5xl font-black ${TITLE_FONTS[style.title_font]} text-amber-100 leading-tight max-w-4xl drop-shadow-md px-4`}>
             {formData.type === 'خطبة جمعة' ? 'خطبة الجمعة' : formData.title || 'عنوان الفعالية الدعوية'}
           </h1>
 

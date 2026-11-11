@@ -1,4 +1,4 @@
-import { Sheikh, Mosque, State, Locality, VisualIdentity, DesignTemplate, AnnouncementFormData, StyleReference } from '../types';
+import { Sheikh, Mosque, State, Locality, VisualIdentity, DesignTemplate, AnnouncementFormData, StyleReference, AiSettings, AiProvider } from '../types';
 
 const API_BASE = '/api';
 
@@ -8,6 +8,34 @@ function getAuthHeader(): Record<string, string> {
 }
 
 export const api = {
+  // Site password (visitor gate)
+  async getSiteStatus(): Promise<{ protected: boolean; unlocked: boolean }> {
+    const res = await fetch(`${API_BASE}/site/status`);
+    return res.json();
+  },
+
+  async siteLogin(password: string) {
+    const res = await fetch(`${API_BASE}/site/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'تعذر الدخول');
+    return body;
+  },
+
+  async changeSitePassword(password: string) {
+    const res = await fetch(`${API_BASE}/site/password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ password }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'فشل تغيير كلمة مرور الموقع');
+    return body;
+  },
+
   // Auth
   async login(username: string, password: string) {
     const res = await fetch(`${API_BASE}/auth/login`, {
@@ -226,9 +254,37 @@ export const api = {
   },
 
   // Style references (past announcements) & AI analysis
-  async getAiStatus(): Promise<{ enabled: boolean }> {
-    const res = await fetch(`${API_BASE}/ai/status`);
+  async getAiSettings(): Promise<AiSettings> {
+    const res = await fetch(`${API_BASE}/settings/ai`, { headers: { ...getAuthHeader() } });
+    if (!res.ok) throw new Error('فشل جلب إعدادات الذكاء الاصطناعي');
     return res.json();
+  },
+
+  async saveAiProvider(provider: AiProvider, apiKey: string, model: string): Promise<AiSettings> {
+    const res = await fetch(`${API_BASE}/settings/ai/${provider}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ api_key: apiKey, model }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'فشل حفظ المفتاح');
+    return body;
+  },
+
+  async removeAiProvider(provider: AiProvider): Promise<AiSettings> {
+    const res = await fetch(`${API_BASE}/settings/ai/${provider}`, { method: 'DELETE', headers: { ...getAuthHeader() } });
+    return res.json();
+  },
+
+  async setActiveAiProvider(provider: AiProvider): Promise<AiSettings> {
+    const res = await fetch(`${API_BASE}/settings/ai/active`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ provider }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'فشل اختيار الأداة');
+    return body;
   },
 
   async getStyleReferences(): Promise<StyleReference[]> {

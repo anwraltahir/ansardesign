@@ -231,11 +231,21 @@ export function AnnouncementForm({
     'جدول برامج',
   ].includes(formData.type);
 
-  const canSubmit =
-    !fridayError &&
-    (isFridaySermon || formData.title) &&
-    (formData.primarySheikhId || formData.manualSheikh?.name.trim()) &&
-    formData.date;
+  // Everything the poster needs; the generate button stays disabled until this list is empty
+  const missingFields = [
+    !formData.primarySheikhId && !formData.manualSheikh?.name.trim() && 'الشيخ',
+    !formData.mosqueId && !formData.customLocation?.trim() && 'المسجد أو مكان الإقامة',
+    (!formData.date || fridayError) && (isFridaySermon ? 'تاريخ جمعة صحيح' : 'التاريخ'),
+    !isFridaySermon && !formData.title.trim() && (formData.type === 'دورة علمية' ? 'اسم الدورة' : 'العنوان'),
+    (formData.type === 'دورة علمية' || formData.type === 'برنامج دراسة المتون العلمية') &&
+      !formData.booksAndTexts?.trim() &&
+      'المتون أو الكتب المقررة',
+    formData.type === 'ندوة علمية' && !formData.symposiumThemes?.trim() && 'محاور الندوة',
+    isMultiSessionType &&
+      formData.multiSessions.some((session) => !session.day.trim() || !session.time.trim()) &&
+      'يوم ووقت كل جلسة في الجدول',
+  ].filter(Boolean) as string[];
+  const canSubmit = missingFields.length === 0;
 
   return (
     <div className="bg-slate-900/90 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-10 shadow-2xl backdrop-blur-sm max-w-4xl mx-auto">
@@ -561,7 +571,7 @@ export function AnnouncementForm({
         <div className="p-4 sm:p-5 rounded-2xl bg-slate-800/30 border border-slate-800 space-y-4">
           <label className="text-sm font-bold text-brand-200 flex items-center gap-2 font-cairo">
             <MapPin className="w-4 h-4 text-brand-400" />
-            3. الموقع الجغرافي والمسجد:
+            3. الموقع الجغرافي والمسجد: <span className="text-red-400">*</span>
           </label>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -836,7 +846,9 @@ export function AnnouncementForm({
             {/* Course Books and Texts (for courses & text programs) */}
             {(formData.type === 'دورة علمية' || formData.type === 'برنامج دراسة المتون العلمية') && (
               <div>
-                <label className="text-xs text-slate-400 block mb-1">المتون أو الكتب المقررة:</label>
+                <label className="text-xs text-slate-400 block mb-1">
+                  المتون أو الكتب المقررة: <span className="text-red-400">*</span>
+                </label>
                 <input
                   type="text"
                   placeholder="مثال: الأصول الثلاثة، الأربعين النووية، العقيدة الواسطية"
@@ -850,7 +862,9 @@ export function AnnouncementForm({
             {/* Symposium themes or notes */}
             {formData.type === 'ندوة علمية' && (
               <div>
-                <label className="text-xs text-slate-400 block mb-1">محاور الندوة العلمية:</label>
+                <label className="text-xs text-slate-400 block mb-1">
+                  محاور الندوة العلمية: <span className="text-red-400">*</span>
+                </label>
                 <input
                   type="text"
                   placeholder="مثال: المحور الأول: فضل العلم، المحور الثاني: شبهات والرد عليها"
@@ -1007,9 +1021,7 @@ export function AnnouncementForm({
           </button>
           {!canSubmit && (
             <p className="text-center text-xs text-slate-400 mt-2 font-tajawal">
-              {isFridaySermon
-                ? 'يرجى اختيار الخطيب وتاريخ الجمعة لتوليد التصميم.'
-                : 'يرجى إكمال الحقول الإلزامية (نوع الإعلان، الشيخ، العنوان، وتاريخ صحيح) لتوليد التصميم.'}
+              أكمل قبل إنشاء التصميم: <span className="font-bold text-red-400">{missingFields.join('، ')}</span>
             </p>
           )}
         </div>

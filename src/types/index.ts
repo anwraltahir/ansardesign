@@ -105,6 +105,20 @@ export interface DesignTemplate {
   style?: PosterStyle;
 }
 
+export type AiProvider = 'claude' | 'gemini' | 'openai';
+
+export interface AiProviderStatus {
+  configured: boolean;
+  source: 'admin' | 'env' | null;
+  masked: string | null; // e.g. "sk-ant-…a1b2"; the full key never leaves the server
+  model: string;
+}
+
+export interface AiSettings {
+  active: AiProvider | null; // the tool used to analyze old announcements
+  providers: Record<AiProvider, AiProviderStatus>;
+}
+
 export interface StyleReference {
   id: number;
   image_url: string;
@@ -112,6 +126,7 @@ export interface StyleReference {
   notes: string;
   status: 'pending' | 'analyzing' | 'done' | 'error';
   style: PosterStyle | null;
+  analyzed_by?: string;
   error: string;
   created_at: string;
 }

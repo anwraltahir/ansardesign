@@ -9,6 +9,7 @@ import { AnnouncementForm } from './components/AnnouncementForm';
 import { PreviewModal } from './components/PreviewModal';
 import { AdminDashboard } from './components/Admin/AdminDashboard';
 import { AdminLogin } from './components/Admin/AdminLogin';
+import { SiteGate } from './components/SiteGate';
 import {
   AnnouncementFormData,
   Sheikh,
@@ -89,7 +90,7 @@ export default function App() {
       liveBroadcast: true,
       womenHallAvailable: true,
       multiSessions: [],
-      templateId: 'emerald-turquoise',
+      templateId: '',
     };
   });
 
@@ -101,8 +102,18 @@ export default function App() {
 
   const formSectionRef = useRef<HTMLDivElement>(null);
 
+  // Site password gate: nothing loads until the visitor has entered it
+  const [siteAccess, setSiteAccess] = useState<'checking' | 'locked' | 'open'>('checking');
+  useEffect(() => {
+    api
+      .getSiteStatus()
+      .then((r) => setSiteAccess(r.unlocked ? 'open' : 'locked'))
+      .catch(() => setSiteAccess('open'));
+  }, []);
+
   // Initial load
   useEffect(() => {
+    if (siteAccess !== 'open') return;
     async function loadData() {
       try {
         const [
@@ -155,7 +166,7 @@ export default function App() {
       .catch(() => setIsAdminLoggedIn(false));
 
     loadData();
-  }, []);
+  }, [siteAccess]);
 
   const handleOpenAdmin = () => {
     if (isAdminLoggedIn) {
@@ -202,7 +213,7 @@ export default function App() {
       liveBroadcast: false,
       womenHallAvailable: true,
       multiSessions: [],
-      templateId: 'golden-heritage',
+      templateId: recommendTemplate('خطبة جمعة', templates),
     });
   };
 
@@ -231,7 +242,7 @@ export default function App() {
       liveBroadcast: announcement.liveBroadcast || false,
       womenHallAvailable: announcement.womenHallAvailable ?? true,
       multiSessions: announcement.multiSessions || [],
-      templateId: announcement.templateId || 'golden-heritage',
+      templateId: recommendTemplate(announcement.type || 'محاضرة عامة', templates),
     });
     setIsAdminDashboardOpen(false);
     setTimeout(() => scrollToForm(), 200);
@@ -244,6 +255,13 @@ export default function App() {
   const localityObj = localities.find((l) => l.id === formData.localityId);
 
   // If in Admin Dashboard mode
+  if (siteAccess === 'checking') {
+    return <div className="min-h-screen bg-slate-950" />;
+  }
+  if (siteAccess === 'locked') {
+    return <SiteGate onUnlocked={() => setSiteAccess('open')} />;
+  }
+
   if (isAdminDashboardOpen && isAdminLoggedIn) {
     return (
       <AdminDashboard

@@ -2,10 +2,10 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
-import path from 'path';
+import { dataFile } from './dataDir.ts';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'ansar-al-sunna-secret-key-2026-dawah-secure-token';
-const ADMIN_CREDENTIALS_FILE = path.join(process.cwd(), 'uploads', 'admin_credentials.json');
+export const JWT_SECRET = process.env.JWT_SECRET || 'ansar-al-sunna-secret-key-2026-dawah-secure-token';
+const ADMIN_CREDENTIALS_FILE = dataFile('admin_credentials.json');
 
 interface AdminUser {
   id: number;
